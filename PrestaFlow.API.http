@@ -1,0 +1,6 @@
+@PrestaFlow.API_HostAddress = http://localhost:5041
+
+GET {{PrestaFlow.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
