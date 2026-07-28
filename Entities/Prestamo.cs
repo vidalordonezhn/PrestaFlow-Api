@@ -42,9 +42,28 @@ namespace PrestaFlow.API.Entities
         public string Frecuencia { get; set; } = "Diario"; // Diario, Semanal, Mensual
 
         [Required]
+        [MaxLength(50)]
+        public string TipoPrestamo { get; set; } = "Personal"; // Personal, Hipotecario, Fiduciario, etc.
+
+        [Required]
+        [MaxLength(50)]
+        public string MetodoDesembolso { get; set; } = "Efectivo"; // Efectivo, Transferencia
+
+        [Required]
+        [MaxLength(20)]
+        public string TipoInteres { get; set; } = "Fijo"; // Fijo, Variable
+
+        [Required]
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal TasaMoraPorcentaje { get; set; } = 5.00m; // Porcentaje de interés moratorio por defecto
+
+        [Required]
         public DateTime FechaOtorgado { get; set; } = DateTime.UtcNow;
 
         // Relación: Un préstamo puede tener muchos abonos/pagos
         public virtual ICollection<Pago> Pagos { get; set; } = new List<Pago>();
+
+        // Relación: Un préstamo tiene su cronograma de cuotas
+        public virtual ICollection<Cuota> Cuotas { get; set; } = new List<Cuota>();
     }
 }

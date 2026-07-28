@@ -11,6 +11,9 @@ namespace PrestaFlow.API.Features.Pagos.DTOs
         public string ClienteIdentidad { get; set; } = null!;
         public string ClientePhone { get; set; } = null!;
         public decimal Monto { get; set; }
+        public decimal MontoPrincipal { get; set; }
+        public decimal MontoInteres { get; set; }
+        public decimal MontoMora { get; set; }
         public DateTime FechaPago { get; set; }
         public string MetodoPago { get; set; } = null!;
         public string? Referencia { get; set; }

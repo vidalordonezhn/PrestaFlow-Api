@@ -25,8 +25,14 @@ namespace PrestaFlow.API.Features.Prestamos
         {
             var prestamos = await _context.Prestamos
                 .Include(p => p.Cliente)
+                .Include(p => p.Cuotas)
                 .OrderByDescending(p => p.FechaOtorgado)
                 .ToListAsync();
+
+            foreach (var p in prestamos)
+            {
+                PrestaFlow.API.Features.Pagos.PagosService.ActualizarMoraYRecalculos(p);
+            }
 
             return prestamos.Select(MapToResponseDto).ToList();
         }
@@ -76,11 +82,60 @@ namespace PrestaFlow.API.Features.Prestamos
                     CuotasPagadas = 0,
                     Status = "Activo",
                     Frecuencia = dto.Frecuencia,
+                    TipoPrestamo = dto.TipoPrestamo,
+                    MetodoDesembolso = dto.MetodoDesembolso,
+                    TipoInteres = dto.TipoInteres,
+                    TasaMoraPorcentaje = dto.TasaMoraPorcentaje,
                     FechaOtorgado = DateTime.UtcNow
                 };
 
+                // Generar cronograma de cuotas físicas
+                decimal principalAcumulado = 0m;
+                decimal interesAcumulado = 0m;
+
+                decimal principalPorCuota = Math.Round(dto.Capital / dto.PlazoCuotas, 2);
+                decimal interesPorCuota = Math.Round(totalInteres / dto.PlazoCuotas, 2);
+
+                for (int i = 1; i <= dto.PlazoCuotas; i++)
+                {
+                    decimal pMonto = principalPorCuota;
+                    decimal iMonto = interesPorCuota;
+
+                    // Ajuste de redondeo en la última cuota
+                    if (i == dto.PlazoCuotas)
+                    {
+                        pMonto = dto.Capital - principalAcumulado;
+                        iMonto = totalInteres - interesAcumulado;
+                    }
+
+                    principalAcumulado += pMonto;
+                    interesAcumulado += iMonto;
+
+                    DateTime fechaVencimiento = DateTime.UtcNow;
+                    if (dto.Frecuencia == "Diario")
+                        fechaVencimiento = fechaVencimiento.AddDays(i);
+                    else if (dto.Frecuencia == "Semanal")
+                        fechaVencimiento = fechaVencimiento.AddDays(i * 7);
+                    else if (dto.Frecuencia == "Mensual")
+                        fechaVencimiento = fechaVencimiento.AddMonths(i);
+
+                    prestamo.Cuotas.Add(new Cuota
+                    {
+                        NumeroCuota = i,
+                        FechaVencimiento = fechaVencimiento,
+                        MontoPrincipal = pMonto,
+                        MontoInteres = iMonto,
+                        MontoMoratorio = 0.00m,
+                        MontoPagadoPrincipal = 0.00m,
+                        MontoPagadoInteres = 0.00m,
+                        MontoPagadoMora = 0.00m,
+                        Estado = "Pendiente",
+                        FechaUltimoCalculoMora = DateTime.UtcNow
+                    });
+                }
+
                 await _context.Prestamos.AddAsync(prestamo);
-                await _context.SaveChangesAsync(); // Generar ID del préstamo
+                await _context.SaveChangesAsync(); // Generar ID del préstamo y sus cuotas
 
                 // B. Descontar saldo de la cuenta de desembolso
                 cuenta.Saldo -= dto.Capital;
@@ -91,7 +146,7 @@ namespace PrestaFlow.API.Features.Prestamos
                     CuentaId = dto.CuentaDesembolsoId,
                     Tipo = "Egreso",
                     Monto = dto.Capital,
-                    Concepto = $"[Desembolso] Préstamo PF-{prestamo.Id:0000} a {cliente.Nombre}",
+                    Concepto = $"[Desembolso - {dto.MetodoDesembolso}] Préstamo PF-{prestamo.Id:0000} a {cliente.Nombre}",
                     Fecha = DateTime.UtcNow
                 };
 
@@ -103,6 +158,7 @@ namespace PrestaFlow.API.Features.Prestamos
 
                 // Recargar para navegación
                 await _context.Entry(prestamo).Reference(p => p.Cliente).LoadAsync();
+                await _context.Entry(prestamo).Collection(p => p.Cuotas).LoadAsync();
 
                 return MapToResponseDto(prestamo);
             }
@@ -132,7 +188,25 @@ namespace PrestaFlow.API.Features.Prestamos
                 CuotasPagadas = p.CuotasPagadas,
                 Status = p.Status,
                 Frecuencia = p.Frecuencia,
-                FechaOtorgado = p.FechaOtorgado
+                TipoPrestamo = p.TipoPrestamo,
+                MetodoDesembolso = p.MetodoDesembolso,
+                TipoInteres = p.TipoInteres,
+                TasaMoraPorcentaje = p.TasaMoraPorcentaje,
+                FechaOtorgado = p.FechaOtorgado,
+                Cuotas = p.Cuotas.OrderBy(c => c.NumeroCuota).Select(c => new CuotaResponseDto
+                {
+                    Id = c.Id,
+                    NumeroCuota = c.NumeroCuota,
+                    FechaVencimiento = c.FechaVencimiento,
+                    MontoPrincipal = c.MontoPrincipal,
+                    MontoInteres = c.MontoInteres,
+                    MontoMoratorio = c.MontoMoratorio,
+                    MontoPagadoPrincipal = c.MontoPagadoPrincipal,
+                    MontoPagadoInteres = c.MontoPagadoInteres,
+                    MontoPagadoMora = c.MontoPagadoMora,
+                    Estado = c.Estado,
+                    FechaUltimoCalculoMora = c.FechaUltimoCalculoMora
+                }).ToList()
             };
         }
     }

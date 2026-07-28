@@ -133,3 +133,4 @@
 /Users/vidalordonez/Documents/AngularProjects/PrestaFlow.API/obj/Debug/net10.0/PrestaFlow.API.pdb
 /Users/vidalordonez/Documents/AngularProjects/PrestaFlow.API/obj/Debug/net10.0/PrestaFlow.API.genruntimeconfig.cache
 /Users/vidalordonez/Documents/AngularProjects/PrestaFlow.API/obj/Debug/net10.0/ref/PrestaFlow.API.dll
+/Users/vidalordonez/Documents/AngularProjects/PrestaFlow.API/obj/Debug/net10.0/PrestaFlow.API.sourcelink.json

@@ -16,6 +16,11 @@ namespace PrestaFlow.API.Features.Prestamos.DTOs
         public int CuotasPagadas { get; set; }
         public string Status { get; set; } = null!; // Activo, Pagado, Mora
         public string Frecuencia { get; set; } = null!; // Diario, Semanal, Mensual
+        public string TipoPrestamo { get; set; } = null!;
+        public string MetodoDesembolso { get; set; } = null!;
+        public string TipoInteres { get; set; } = null!;
+        public decimal TasaMoraPorcentaje { get; set; }
         public DateTime FechaOtorgado { get; set; }
+        public System.Collections.Generic.List<CuotaResponseDto> Cuotas { get; set; } = new();
     }
 }

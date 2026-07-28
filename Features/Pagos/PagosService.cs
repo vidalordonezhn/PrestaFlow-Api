@@ -40,6 +40,7 @@ namespace PrestaFlow.API.Features.Pagos
             // 1. Validar préstamo
             var prestamo = await _context.Prestamos
                 .Include(p => p.Cliente)
+                .Include(p => p.Cuotas)
                 .FirstOrDefaultAsync(p => p.Id == dto.PrestamoId);
 
             if (prestamo == null)
@@ -51,6 +52,9 @@ namespace PrestaFlow.API.Features.Pagos
             {
                 throw new InvalidOperationException($"El préstamo PF-{prestamo.Id:0000} ya ha sido cancelado por completo.");
             }
+
+            // Actualizar la mora de las cuotas vencidas y recalcular saldos variables antes de abonar
+            ActualizarMoraYRecalculos(prestamo);
 
             // 2. Determinar la cuenta financiera de destino (Efectivo -> Caja Chica General, Transferencia -> Banco Atlántida)
             int cuentaId = dto.MetodoPago == "Efectivo" ? 1 : 2;
@@ -74,14 +78,93 @@ namespace PrestaFlow.API.Features.Pagos
                     Referencia = dto.Referencia
                 };
 
+                // Distribuir el abono en cascada (Waterfall)
+                decimal restante = dto.Monto;
+                decimal abonadoPrincipal = 0m;
+                decimal abonadoInteres = 0m;
+                decimal abonadoMora = 0m;
+
+                var cuotasPendientes = prestamo.Cuotas
+                    .Where(c => c.Estado != "Pagado")
+                    .OrderBy(c => c.NumeroCuota)
+                    .ToList();
+
+                foreach (var cuota in cuotasPendientes)
+                {
+                    if (restante <= 0m) break;
+
+                    // 1. Cobrar Mora primero
+                    decimal moraPorPagar = cuota.MontoMoratorio - cuota.MontoPagadoMora;
+                    if (moraPorPagar > 0m)
+                    {
+                        decimal pagoMora = Math.Min(moraPorPagar, restante);
+                        cuota.MontoPagadoMora += pagoMora;
+                        abonadoMora += pagoMora;
+                        restante -= pagoMora;
+                    }
+
+                    if (restante <= 0m) break;
+
+                    // 2. Cobrar Interés
+                    decimal interesPorPagar = cuota.MontoInteres - cuota.MontoPagadoInteres;
+                    if (interesPorPagar > 0m)
+                    {
+                        decimal pagoInteres = Math.Min(interesPorPagar, restante);
+                        cuota.MontoPagadoInteres += pagoInteres;
+                        abonadoInteres += pagoInteres;
+                        restante -= pagoInteres;
+                    }
+
+                    if (restante <= 0m) break;
+
+                    // 3. Cobrar Principal
+                    decimal principalPorPagar = cuota.MontoPrincipal - cuota.MontoPagadoPrincipal;
+                    if (principalPorPagar > 0m)
+                    {
+                        decimal pagoPrincipal = Math.Min(principalPorPagar, restante);
+                        cuota.MontoPagadoPrincipal += pagoPrincipal;
+                        abonadoPrincipal += pagoPrincipal;
+                        restante -= pagoPrincipal;
+                    }
+
+                    // Actualizar estado de la cuota individual
+                    decimal pagadoTotalPeriodo = cuota.MontoPagadoPrincipal + cuota.MontoPagadoInteres + cuota.MontoPagadoMora;
+                    decimal debidoTotalPeriodo = cuota.MontoPrincipal + cuota.MontoInteres + cuota.MontoMoratorio;
+                    decimal diferencia = debidoTotalPeriodo - pagadoTotalPeriodo;
+
+                    if (diferencia <= 0.05m) // Tolerancia para diferencias de centavos por división
+                    {
+                        if (diferencia > 0m)
+                        {
+                            cuota.MontoPagadoPrincipal += diferencia;
+                            abonadoPrincipal += diferencia;
+                        }
+                        cuota.Estado = "Pagado";
+                    }
+                    else
+                    {
+                        cuota.Estado = "Parcial";
+                    }
+                }
+
+                // Asignar los montos desglosados al registro de Pago
+                pago.MontoPrincipal = abonadoPrincipal;
+                pago.MontoInteres = abonadoInteres;
+                pago.MontoMora = abonadoMora;
+
                 await _context.Pagos.AddAsync(pago);
                 await _context.SaveChangesAsync(); // Generar ID del pago
 
                 // B. Actualizar cuotas pagadas y estado en el préstamo
-                prestamo.CuotasPagadas += 1;
+                prestamo.CuotasPagadas = prestamo.Cuotas.Count(c => c.Estado == "Pagado");
                 if (prestamo.CuotasPagadas >= prestamo.PlazoCuotas)
                 {
                     prestamo.Status = "Pagado";
+                }
+                else
+                {
+                    bool tieneMora = prestamo.Cuotas.Any(c => c.Estado == "Vencido" || (c.FechaVencimiento < DateTime.UtcNow && c.Estado != "Pagado"));
+                    prestamo.Status = tieneMora ? "Mora" : "Activo";
                 }
 
                 // C. Incrementar saldo de la cuenta receptora de fondos
@@ -113,6 +196,51 @@ namespace PrestaFlow.API.Features.Pagos
         }
 
         /// <summary>
+        /// Recalcula de forma dinámica los intereses moratorios y actualiza la tasa variable según saldos caídos.
+        /// </summary>
+        public static void ActualizarMoraYRecalculos(Prestamo prestamo)
+        {
+            // 1. Calcular intereses moratorios para cuotas vencidas
+            foreach (var c in prestamo.Cuotas.Where(c => c.Estado != "Pagado"))
+            {
+                if (c.FechaVencimiento < DateTime.UtcNow)
+                {
+                    int diasRetraso = (DateTime.UtcNow - c.FechaVencimiento).Days;
+                    if (diasRetraso > 0)
+                    {
+                        decimal capitalVencido = c.MontoPrincipal - c.MontoPagadoPrincipal;
+                        decimal tasaDiaria = (prestamo.TasaMoraPorcentaje / 100m) / 30m; // Tasa mensual / 30
+                        c.MontoMoratorio = Math.Round(capitalVencido * tasaDiaria * diasRetraso, 2);
+                        c.Estado = "Vencido";
+                    }
+                }
+            }
+
+            // 2. Si es interés variable, recalcular el interés sobre saldos caídos para cuotas futuras
+            if (prestamo.TipoInteres == "Variable")
+            {
+                decimal capitalPagadoTotal = prestamo.Cuotas.Sum(c => c.MontoPagadoPrincipal);
+                decimal capitalPendienteTotal = Math.Max(0m, prestamo.Capital - capitalPagadoTotal);
+                
+                var cuotasFuturas = prestamo.Cuotas
+                    .Where(c => c.Estado == "Pendiente" && c.FechaVencimiento > DateTime.UtcNow)
+                    .OrderBy(c => c.NumeroCuota)
+                    .ToList();
+
+                if (cuotasFuturas.Any())
+                {
+                    decimal interesTotalRestante = capitalPendienteTotal * (prestamo.InteresPorcentaje / 100m);
+                    decimal interesPorCuotaFutura = Math.Round(interesTotalRestante / cuotasFuturas.Count, 2);
+
+                    foreach (var cf in cuotasFuturas)
+                    {
+                        cf.MontoInteres = interesPorCuotaFutura;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
         /// Mapea la entidad Pago a su DTO de respuesta.
         /// </summary>
         private PagoResponseDto MapToResponseDto(Pago p)
@@ -126,6 +254,9 @@ namespace PrestaFlow.API.Features.Pagos
                 ClienteIdentidad = p.Prestamo.Cliente.Identidad,
                 ClientePhone = p.Prestamo.Cliente.Phone,
                 Monto = p.Monto,
+                MontoPrincipal = p.MontoPrincipal,
+                MontoInteres = p.MontoInteres,
+                MontoMora = p.MontoMora,
                 FechaPago = p.FechaPago,
                 MetodoPago = p.MetodoPago,
                 Referencia = p.Referencia,

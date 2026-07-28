@@ -19,85 +19,51 @@ namespace PrestaFlow.API.Features.Reportes
 
         public async Task<ResumenCarteraDto> GetResumenCarteraAsync()
         {
-            var prestamosActivos = await _context.Prestamos
-                .Where(p => p.Status != "Pagado")
+            var prestamos = await _context.Prestamos
+                .Include(p => p.Cuotas)
                 .ToListAsync();
 
-            decimal capitalColocado = 0;
-            decimal interesPendiente = 0;
-            int clientesMoraActiva = 0;
-
-            var hoy = DateTime.UtcNow;
-
-            foreach (var p in prestamosActivos)
+            // Ejecutar recálculo dinámico en memoria para que los datos estén al día
+            foreach (var p in prestamos)
             {
-                // Calcular cuotas pagadas y saldo pendiente de capital/interés
-                decimal ratioPendiente = 1 - ((decimal)p.CuotasPagadas / p.PlazoCuotas);
-                
-                capitalColocado += p.Capital * ratioPendiente;
-                interesPendiente += (p.Capital * (p.InteresPorcentaje / 100)) * ratioPendiente;
-
-                // Verificar si está en mora basándonos en el schedule
-                var diasTranscurridos = (hoy - p.FechaOtorgado).Days;
-                if (diasTranscurridos > 0)
-                {
-                    int cuotasEsperadas = p.Frecuencia switch
-                    {
-                        "Diario" => diasTranscurridos,
-                        "Semanal" => diasTranscurridos / 7,
-                        "Quincenal" => diasTranscurridos / 15,
-                        "Mensual" => diasTranscurridos / 30,
-                        _ => diasTranscurridos
-                    };
-
-                    if (cuotasEsperadas > p.PlazoCuotas) cuotasEsperadas = p.PlazoCuotas;
-
-                    if (cuotasEsperadas > p.CuotasPagadas)
-                    {
-                        clientesMoraActiva++;
-                    }
-                }
+                PrestaFlow.API.Features.Pagos.PagosService.ActualizarMoraYRecalculos(p);
             }
+
+            decimal capitalHistorico = prestamos.Sum(p => p.Capital);
+            decimal capitalActual = prestamos.Sum(p => p.Capital - p.Cuotas.Sum(c => c.MontoPagadoPrincipal));
+            decimal capitalColocado = prestamos.Where(p => p.Status != "Pagado").Sum(p => p.Cuotas.Sum(c => c.MontoPrincipal - c.MontoPagadoPrincipal));
+            decimal interesPendiente = prestamos.Where(p => p.Status != "Pagado").Sum(p => p.Cuotas.Sum(c => c.MontoInteres - c.MontoPagadoInteres));
+            decimal moraPendiente = prestamos.Where(p => p.Status != "Pagado").Sum(p => p.Cuotas.Sum(c => c.MontoMoratorio - c.MontoPagadoMora));
+            int clientesMoraActiva = prestamos.Count(p => p.Status == "Mora");
 
             return new ResumenCarteraDto
             {
                 CapitalColocado = capitalColocado,
                 InteresPendiente = interesPendiente,
-                TotalProyectado = capitalColocado + interesPendiente,
-                ClientesMoraActiva = clientesMoraActiva
+                TotalProyectado = capitalColocado + interesPendiente + moraPendiente,
+                ClientesMoraActiva = clientesMoraActiva,
+                CapitalHistoricoPrestado = capitalHistorico,
+                CapitalActual = capitalActual
             };
         }
 
         public async Task<IngresosReporteDto> GetIngresosReporteAsync(DateTime startDate, DateTime endDate)
         {
-            // Traer todos los pagos en el rango de fecha
             var pagos = await _context.Pagos
-                .Include(p => p.Prestamo)
                 .Where(p => p.FechaPago >= startDate && p.FechaPago <= endDate)
                 .ToListAsync();
 
-            decimal total = 0;
-            decimal capital = 0;
-            decimal interes = 0;
-
-            foreach (var p in pagos)
-            {
-                total += p.Monto;
-
-                // Factor de capitalización: 1 / (1 + (Interes / 100))
-                decimal capitalFactor = 1 / (1 + (p.Prestamo.InteresPorcentaje / 100));
-                decimal capitalPortion = p.Monto * capitalFactor;
-                decimal interesPortion = p.Monto - capitalPortion;
-
-                capital += capitalPortion;
-                interes += interesPortion;
-            }
+            decimal total = pagos.Sum(p => p.Monto);
+            decimal capital = pagos.Sum(p => p.MontoPrincipal);
+            decimal interes = pagos.Sum(p => p.MontoInteres);
+            decimal mora = pagos.Sum(p => p.MontoMora);
 
             return new IngresosReporteDto
             {
                 Total = total,
                 Capital = capital,
-                Interes = interes
+                Interes = interes,
+                Mora = mora
             };
         }
 
@@ -108,49 +74,39 @@ namespace PrestaFlow.API.Features.Reportes
 
             var prestamosActivos = await _context.Prestamos
                 .Include(p => p.Cliente)
+                .Include(p => p.Cuotas)
                 .Where(p => p.Status != "Pagado")
                 .ToListAsync();
 
             foreach (var p in prestamosActivos)
             {
-                var diasTranscurridos = (hoy - p.FechaOtorgado).Days;
-                if (diasTranscurridos <= 0) continue;
+                PrestaFlow.API.Features.Pagos.PagosService.ActualizarMoraYRecalculos(p);
 
-                int cuotasEsperadas = p.Frecuencia switch
+                var cuotasVencidas = p.Cuotas
+                    .Where(c => (c.Estado == "Vencido" || c.FechaVencimiento < hoy) && c.Estado != "Pagado")
+                    .ToList();
+
+                if (cuotasVencidas.Any())
                 {
-                    "Diario" => diasTranscurridos,
-                    "Semanal" => diasTranscurridos / 7,
-                    "Quincenal" => diasTranscurridos / 15,
-                    "Mensual" => diasTranscurridos / 30,
-                    _ => diasTranscurridos
-                };
-
-                if (cuotasEsperadas > p.PlazoCuotas) cuotasEsperadas = p.PlazoCuotas;
-
-                if (cuotasEsperadas > p.CuotasPagadas)
-                {
-                    int cuotasVencidas = cuotasEsperadas - p.CuotasPagadas;
-                    decimal montoAtrasado = cuotasVencidas * p.CuotaMonto;
+                    int cuotasVencidasCount = cuotasVencidas.Count;
+                    decimal montoAtrasado = cuotasVencidas.Sum(c => 
+                        (c.MontoPrincipal - c.MontoPagadoPrincipal) + 
+                        (c.MontoInteres - c.MontoPagadoInteres) + 
+                        (c.MontoMoratorio - c.MontoPagadoMora));
                     
-                    int diasDeRetraso = p.Frecuencia switch
-                    {
-                        "Diario" => cuotasVencidas,
-                        "Semanal" => cuotasVencidas * 7,
-                        "Quincenal" => cuotasVencidas * 15,
-                        "Mensual" => cuotasVencidas * 30,
-                        _ => cuotasVencidas
-                    };
+                    var oldestCuota = cuotasVencidas.OrderBy(c => c.FechaVencimiento).First();
+                    int diasDeRetraso = (hoy - oldestCuota.FechaVencimiento).Days;
 
                     string nivelRiesgo = "Bajo";
-                    if (diasDeRetraso > 15) nivelRiesgo = "Alto";
-                    else if (diasDeRetraso > 7) nivelRiesgo = "Medio";
+                    if (diasDeRetraso > 30) nivelRiesgo = "Alto";
+                    else if (diasDeRetraso > 15) nivelRiesgo = "Medio";
 
                     moraList.Add(new MoraDeudorDto
                     {
                         ClienteNombre = p.Cliente.Nombre,
                         ClienteIdentidad = p.Cliente.Identidad,
                         PrestamoCodigo = $"PF-{p.Id:D4}",
-                        CuotasVencidas = cuotasVencidas,
+                        CuotasVencidas = cuotasVencidasCount,
                         DiasRetraso = diasDeRetraso,
                         MontoAtrasado = montoAtrasado,
                         NivelRiesgo = nivelRiesgo

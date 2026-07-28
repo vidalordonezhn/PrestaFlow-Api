@@ -24,6 +24,7 @@ namespace PrestaFlow.API.Data
         public DbSet<Pago> Pagos => Set<Pago>();
         public DbSet<CuentaFinanciera> CuentasFinancieras => Set<CuentaFinanciera>();
         public DbSet<TransaccionFinanciera> TransaccionesFinancieras => Set<TransaccionFinanciera>();
+        public DbSet<Cuota> Cuotas => Set<Cuota>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -36,6 +37,7 @@ namespace PrestaFlow.API.Data
             modelBuilder.Entity<Pago>().ToTable("pagos");
             modelBuilder.Entity<CuentaFinanciera>().ToTable("cuentas_financieras");
             modelBuilder.Entity<TransaccionFinanciera>().ToTable("transacciones_financieras");
+            modelBuilder.Entity<Cuota>().ToTable("cuotas");
 
             // Configurar relación 1-a-M (Un Cliente -> Muchos Préstamos)
             modelBuilder.Entity<Prestamo>()
@@ -57,6 +59,13 @@ namespace PrestaFlow.API.Data
                 .WithMany(c => c.Transacciones)
                 .HasForeignKey(t => t.CuentaId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            // Configurar relación 1-a-M (Un Préstamo -> Muchas Cuotas)
+            modelBuilder.Entity<Cuota>()
+                .HasOne(c => c.Prestamo)
+                .WithMany(p => p.Cuotas)
+                .HasForeignKey(c => c.PrestamoId)
+                .OnDelete(DeleteBehavior.Cascade);
         }
 
         // Auditoría automática por interceptor en SaveChangesAsync

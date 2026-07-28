@@ -20,6 +20,18 @@ namespace PrestaFlow.API.Entities
         public decimal Monto { get; set; }
 
         [Required]
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal MontoPrincipal { get; set; } = 0.00m;
+
+        [Required]
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal MontoInteres { get; set; } = 0.00m;
+
+        [Required]
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal MontoMora { get; set; } = 0.00m;
+
+        [Required]
         public DateTime FechaPago { get; set; } = DateTime.UtcNow;
 
         [Required]

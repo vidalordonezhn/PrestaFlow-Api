@@ -25,5 +25,18 @@ namespace PrestaFlow.API.Features.Prestamos.DTOs
 
         [Required(ErrorMessage = "La cuenta de desembolso es requerida.")]
         public int CuentaDesembolsoId { get; set; }
+
+        [Required(ErrorMessage = "El tipo de préstamo es requerido.")]
+        public string TipoPrestamo { get; set; } = "Personal"; // Personal, Hipotecario, Fiduciario, etc.
+
+        [Required(ErrorMessage = "El método de desembolso es requerido.")]
+        public string MetodoDesembolso { get; set; } = "Efectivo"; // Efectivo, Transferencia
+
+        [Required(ErrorMessage = "El tipo de interés es requerido.")]
+        [RegularExpression("^(Fijo|Variable)$", ErrorMessage = "El tipo de interés debe ser 'Fijo' o 'Variable'.")]
+        public string TipoInteres { get; set; } = "Fijo";
+
+        [Range(0, 100, ErrorMessage = "La tasa de mora debe estar entre 0% y 100%.")]
+        public decimal TasaMoraPorcentaje { get; set; } = 5.00m;
     }
 }
