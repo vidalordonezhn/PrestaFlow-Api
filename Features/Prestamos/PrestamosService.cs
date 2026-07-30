@@ -209,5 +209,97 @@ namespace PrestaFlow.API.Features.Prestamos
                 }).ToList()
             };
         }
+
+        /// <summary>
+        /// Capitaliza el interés no pagado de una cuota en mora, sumándolo al capital principal del préstamo y recalculando las cuotas futuras.
+        /// </summary>
+        public async Task CapitalizarInteresAsync(int prestamoId, int cuotaId)
+        {
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                var prestamo = await _context.Prestamos
+                    .Include(p => p.Cuotas)
+                    .FirstOrDefaultAsync(p => p.Id == prestamoId);
+
+                if (prestamo == null)
+                    throw new KeyNotFoundException($"El préstamo con ID {prestamoId} no existe.");
+
+                var cuotaACapitalizar = prestamo.Cuotas.FirstOrDefault(c => c.Id == cuotaId);
+                if (cuotaACapitalizar == null)
+                    throw new KeyNotFoundException($"La cuota con ID {cuotaId} no pertenece a este préstamo.");
+
+                decimal interesACapitalizar = cuotaACapitalizar.MontoInteres - cuotaACapitalizar.MontoPagadoInteres;
+                if (interesACapitalizar <= 0)
+                    throw new InvalidOperationException("Esta cuota no tiene intereses pendientes para capitalizar.");
+
+                // Las cuotas futuras que recibirán la distribución
+                var cuotasFuturas = prestamo.Cuotas
+                    .Where(c => c.Estado != "Pagado" && c.Id != cuotaId && c.NumeroCuota > cuotaACapitalizar.NumeroCuota)
+                    .OrderBy(c => c.NumeroCuota)
+                    .ToList();
+
+                int N = cuotasFuturas.Count;
+                if (N == 0)
+                    throw new InvalidOperationException("No existen cuotas futuras pendientes para distribuir el interés capitalizado.");
+
+                // 1. Reducir el interés pendiente de la cuota origen a 0 (ya que se capitaliza)
+                cuotaACapitalizar.MontoInteres = cuotaACapitalizar.MontoPagadoInteres;
+                
+                // Si ya se pagó el principal de esta cuota origen, marcarla como Pagada
+                if (cuotaACapitalizar.MontoPrincipal <= cuotaACapitalizar.MontoPagadoPrincipal)
+                {
+                    cuotaACapitalizar.Estado = "Pagado";
+                }
+
+                // 2. Incrementar el capital principal del préstamo
+                prestamo.Capital += interesACapitalizar;
+
+                // 3. Calcular los montos adicionales por cuota futura
+                decimal adicionalPrincipalPorCuota = Math.Round(interesACapitalizar / N, 2);
+                decimal adicionalInteresPorCuota = Math.Round((interesACapitalizar * (prestamo.InteresPorcentaje / 100m)) / N, 2);
+
+                decimal principalAcumulado = 0m;
+                decimal interesAcumulado = 0m;
+                decimal totalInteresAdicional = interesACapitalizar * (prestamo.InteresPorcentaje / 100m);
+
+                for (int i = 0; i < N; i++)
+                {
+                    var c = cuotasFuturas[i];
+                    
+                    decimal pAdd = adicionalPrincipalPorCuota;
+                    decimal iAdd = adicionalInteresPorCuota;
+
+                    // Ajuste de redondeo en la última cuota futura
+                    if (i == N - 1)
+                    {
+                        pAdd = interesACapitalizar - principalAcumulado;
+                        iAdd = totalInteresAdicional - interesAcumulado;
+                    }
+
+                    principalAcumulado += pAdd;
+                    interesAcumulado += iAdd;
+
+                    c.MontoPrincipal += pAdd;
+                    c.MontoInteres += iAdd;
+                }
+
+                // 4. Actualizar el monto sugerido de la cuota del préstamo
+                var primeraFutura = cuotasFuturas.FirstOrDefault();
+                if (primeraFutura != null)
+                {
+                    prestamo.CuotaMonto = primeraFutura.MontoPrincipal + primeraFutura.MontoInteres;
+                }
+
+                _context.Prestamos.Update(prestamo);
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
     }
 }

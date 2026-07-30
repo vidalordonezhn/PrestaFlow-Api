@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("PrestaFlow.API")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+d6a419430e157db971388efc0bcf933eb873fb17")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+fe7681ba840a30ed068a0d19dad8c112cf28cc74")]
 [assembly: System.Reflection.AssemblyProductAttribute("PrestaFlow.API")]
 [assembly: System.Reflection.AssemblyTitleAttribute("PrestaFlow.API")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -55,5 +55,24 @@ namespace PrestaFlow.API.Features.Prestamos
                 return BadRequest(new { mensaje = ex.Message });
             }
         }
+
+        /// <summary>
+        /// Capitaliza los intereses caídos de una cuota en mora del préstamo, sumándolos al capital principal.
+        /// </summary>
+        [HttpPost("{id}/capitalizar-interes")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> CapitalizarInteres(int id, [FromBody] CapitalizarInteresDto dto)
+        {
+            try
+            {
+                await _prestamosService.CapitalizarInteresAsync(id, dto.CuotaId);
+                return Ok(new { mensaje = "Interés capitalizado correctamente." });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { mensaje = ex.Message });
+            }
+        }
     }
 }
