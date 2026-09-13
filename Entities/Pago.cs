@@ -40,5 +40,12 @@ namespace PrestaFlow.API.Entities
 
         [MaxLength(100)]
         public string? Referencia { get; set; }
+
+        public bool EsAnulado { get; set; } = false;
+
+        [MaxLength(250)]
+        public string? MotivoAnulacion { get; set; }
+
+        public DateTime? FechaAnulacion { get; set; }
     }
 }

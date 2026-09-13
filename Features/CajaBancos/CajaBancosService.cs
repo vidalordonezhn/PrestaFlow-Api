@@ -198,6 +198,67 @@ namespace PrestaFlow.API.Features.CajaBancos
         }
 
         /// <summary>
+        /// Genera el arqueo y cierre diario de caja y bancos para una fecha dada (por defecto hoy).
+        /// </summary>
+        public async Task<ArqueoDiarioDto> GetArqueoDiarioAsync(DateTime? fecha)
+        {
+            var targetDate = fecha?.Date ?? DateTime.UtcNow.Date;
+            var startOfDay = targetDate;
+            var endOfDay = targetDate.AddDays(1).AddTicks(-1);
+
+            var transacciones = await _context.TransaccionesFinancieras
+                .Include(t => t.Cuenta)
+                .Where(t => t.Fecha >= startOfDay && t.Fecha <= endOfDay)
+                .OrderByDescending(t => t.Fecha)
+                .ToListAsync();
+
+            var cuentas = await _context.CuentasFinancieras.ToListAsync();
+            decimal saldoCajas = cuentas.Where(c => c.Tipo == "Caja").Sum(c => c.Saldo);
+            decimal saldoBancos = cuentas.Where(c => c.Tipo == "Banco").Sum(c => c.Saldo);
+
+            decimal totalEfectivoIngresos = transacciones
+                .Where(t => t.Tipo == "Ingreso" && t.Cuenta.Tipo == "Caja")
+                .Sum(t => t.Monto);
+
+            decimal totalTransferenciasIngresos = transacciones
+                .Where(t => t.Tipo == "Ingreso" && t.Cuenta.Tipo == "Banco")
+                .Sum(t => t.Monto);
+
+            decimal totalDesembolsos = transacciones
+                .Where(t => t.Tipo == "Egreso" && t.Concepto.Contains("[Desembolso"))
+                .Sum(t => t.Monto);
+
+            decimal totalOtrosEgresos = transacciones
+                .Where(t => t.Tipo == "Egreso" && !t.Concepto.Contains("[Desembolso"))
+                .Sum(t => t.Monto);
+
+            decimal totalIngresos = totalEfectivoIngresos + totalTransferenciasIngresos;
+            decimal totalEgresos = totalDesembolsos + totalOtrosEgresos;
+
+            return new ArqueoDiarioDto
+            {
+                FechaConsulta = targetDate,
+                TotalEfectivoIngresos = totalEfectivoIngresos,
+                TotalTransferenciasIngresos = totalTransferenciasIngresos,
+                TotalDesembolsosEgresos = totalDesembolsos,
+                TotalOtrosEgresos = totalOtrosEgresos,
+                BalanceNetoDia = totalIngresos - totalEgresos,
+                SaldoTotalCajas = saldoCajas,
+                SaldoTotalBancos = saldoBancos,
+                TotalOperaciones = transacciones.Count,
+                Movimientos = transacciones.Select(t => new MovimientoArqueoDto
+                {
+                    Id = t.Id,
+                    Fecha = t.Fecha,
+                    CuentaNombre = t.Cuenta?.Nombre ?? "N/A",
+                    Tipo = t.Tipo,
+                    Monto = t.Monto,
+                    Concepto = t.Concepto
+                }).ToList()
+            };
+        }
+
+        /// <summary>
         /// Mapea una entidad TransaccionFinanciera a su DTO de respuesta.
         /// </summary>
         private TransaccionResponseDto MapToResponseDto(TransaccionFinanciera t)

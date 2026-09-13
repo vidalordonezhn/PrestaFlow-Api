@@ -54,5 +54,34 @@ namespace PrestaFlow.API.Features.Pagos
                 return BadRequest(new { mensaje = ex.Message });
             }
         }
+
+        /// <summary>
+        /// Anula un pago registrado previamente, revirtiendo las cuotas y ajustando la cuenta de tesorería.
+        /// </summary>
+        [HttpPost("{id}/anular")]
+        [ProducesResponseType(typeof(PagoResponseDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> AnularPago(int id, [FromBody] AnularPagoDto dto)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            try
+            {
+                var pago = await _pagosService.AnularPagoAsync(id, dto);
+                return Ok(pago);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { mensaje = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { mensaje = ex.Message });
+            }
+        }
     }
 }

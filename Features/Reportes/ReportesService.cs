@@ -29,6 +29,8 @@ namespace PrestaFlow.API.Features.Reportes
                 PrestaFlow.API.Features.Pagos.PagosService.ActualizarMoraYRecalculos(p);
             }
 
+            await _context.SaveChangesAsync();
+
             decimal capitalHistorico = prestamos.Sum(p => p.Capital);
             decimal capitalActual = prestamos.Sum(p => p.Capital - p.Cuotas.Sum(c => c.MontoPagadoPrincipal));
             decimal capitalColocado = prestamos.Where(p => p.Status != "Pagado").Sum(p => p.Cuotas.Sum(c => c.MontoPrincipal - c.MontoPagadoPrincipal));
@@ -72,15 +74,22 @@ namespace PrestaFlow.API.Features.Reportes
             var hoy = DateTime.UtcNow;
             var moraList = new List<MoraDeudorDto>();
 
-            var prestamosActivos = await _context.Prestamos
+            var prestamos = await _context.Prestamos
                 .Include(p => p.Cliente)
                 .Include(p => p.Cuotas)
-                .Where(p => p.Status != "Pagado")
                 .ToListAsync();
+
+            foreach (var p in prestamos)
+            {
+                PrestaFlow.API.Features.Pagos.PagosService.ActualizarMoraYRecalculos(p);
+            }
+
+            await _context.SaveChangesAsync();
+
+            var prestamosActivos = prestamos.Where(p => p.Status != "Pagado").ToList();
 
             foreach (var p in prestamosActivos)
             {
-                PrestaFlow.API.Features.Pagos.PagosService.ActualizarMoraYRecalculos(p);
 
                 var cuotasVencidas = p.Cuotas
                     .Where(c => (c.Estado == "Vencido" || c.FechaVencimiento < hoy) && c.Estado != "Pagado")

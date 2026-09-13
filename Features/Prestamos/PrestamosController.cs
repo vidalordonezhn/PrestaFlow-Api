@@ -32,6 +32,22 @@ namespace PrestaFlow.API.Features.Prestamos
         }
 
         /// <summary>
+        /// Obtiene un préstamo por su identificador único.
+        /// </summary>
+        [HttpGet("{id}")]
+        [ProducesResponseType(typeof(PrestamoResponseDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetPrestamoById(int id)
+        {
+            var prestamo = await _prestamosService.GetPrestamoByIdAsync(id);
+            if (prestamo == null)
+            {
+                return NotFound(new { mensaje = $"No se encontró el préstamo con ID {id}." });
+            }
+            return Ok(prestamo);
+        }
+
+        /// <summary>
         /// Registra un nuevo préstamo y realiza el débito financiero desde la cuenta seleccionada.
         /// </summary>
         [HttpPost]

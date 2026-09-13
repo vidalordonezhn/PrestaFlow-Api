@@ -34,7 +34,27 @@ namespace PrestaFlow.API.Features.Prestamos
                 PrestaFlow.API.Features.Pagos.PagosService.ActualizarMoraYRecalculos(p);
             }
 
+            await _context.SaveChangesAsync();
+
             return prestamos.Select(MapToResponseDto).ToList();
+        }
+
+        /// <summary>
+        /// Obtiene un préstamo por su ID con su tabla de cuotas y estado actualizado en tiempo real.
+        /// </summary>
+        public async Task<PrestamoResponseDto?> GetPrestamoByIdAsync(int id)
+        {
+            var prestamo = await _context.Prestamos
+                .Include(p => p.Cliente)
+                .Include(p => p.Cuotas)
+                .FirstOrDefaultAsync(p => p.Id == id);
+
+            if (prestamo == null) return null;
+
+            PrestaFlow.API.Features.Pagos.PagosService.ActualizarMoraYRecalculos(prestamo);
+            await _context.SaveChangesAsync();
+
+            return MapToResponseDto(prestamo);
         }
 
         /// <summary>

@@ -18,5 +18,8 @@ namespace PrestaFlow.API.Features.Pagos.DTOs
         public string MetodoPago { get; set; } = null!;
         public string? Referencia { get; set; }
         public string CreadoPor { get; set; } = null!;
+        public bool EsAnulado { get; set; }
+        public string? MotivoAnulacion { get; set; }
+        public DateTime? FechaAnulacion { get; set; }
     }
 }

@@ -26,10 +26,14 @@ namespace PrestaFlow.API.Features.Clientes
             var clientes = await _context.Clientes
                 .Include(c => c.Prestamos)
                     .ThenInclude(p => p.Pagos)
+                .Include(c => c.Prestamos)
+                    .ThenInclude(p => p.Cuotas)
                 .OrderBy(c => c.Nombre)
                 .ToListAsync();
 
-            return clientes.Select(MapToResponseDto).ToList();
+            var dtos = clientes.Select(MapToResponseDto).ToList();
+            await _context.SaveChangesAsync();
+            return dtos;
         }
 
         /// <summary>
@@ -40,11 +44,15 @@ namespace PrestaFlow.API.Features.Clientes
             var cliente = await _context.Clientes
                 .Include(c => c.Prestamos)
                     .ThenInclude(p => p.Pagos)
+                .Include(c => c.Prestamos)
+                    .ThenInclude(p => p.Cuotas)
                 .FirstOrDefaultAsync(c => c.Id == id);
 
             if (cliente == null) return null;
 
-            return MapToResponseDto(cliente);
+            var dto = MapToResponseDto(cliente);
+            await _context.SaveChangesAsync();
+            return dto;
         }
 
         /// <summary>
@@ -81,6 +89,25 @@ namespace PrestaFlow.API.Features.Clientes
         /// </summary>
         private ClienteResponseDto MapToResponseDto(Cliente c)
         {
+            // Sincronizar estado de cada préstamo en tiempo real
+            foreach (var p in c.Prestamos)
+            {
+                if (p.Cuotas != null && p.Cuotas.Any())
+                {
+                    PrestaFlow.API.Features.Pagos.PagosService.ActualizarMoraYRecalculos(p);
+                }
+                else
+                {
+                    decimal totalConInteres = p.Capital * (1 + (p.InteresPorcentaje / 100m));
+                    decimal totalAbonado = p.Pagos?.Sum(pg => pg.Monto) ?? 0m;
+                    if (totalConInteres - totalAbonado <= 0.05m)
+                    {
+                        p.Status = "Pagado";
+                        p.CuotasPagadas = p.PlazoCuotas;
+                    }
+                }
+            }
+
             var activeLoans = c.Prestamos.Where(p => p.Status != "Pagado").ToList();
             var loansCount = activeLoans.Count;
 
@@ -91,13 +118,13 @@ namespace PrestaFlow.API.Features.Clientes
                 if (prestamo.Status == "Pagado") continue;
 
                 // Total a pagar con interés
-                decimal totalConInteres = prestamo.Capital * (1 + (prestamo.InteresPorcentaje / 100));
+                decimal totalConInteres = prestamo.Capital * (1 + (prestamo.InteresPorcentaje / 100m));
                 
                 // Total abonado hasta la fecha
-                decimal totalAbonado = prestamo.Pagos.Sum(p => p.Monto);
+                decimal totalAbonado = prestamo.Pagos?.Sum(p => p.Monto) ?? (prestamo.Cuotas?.Sum(cu => cu.MontoPagadoPrincipal + cu.MontoPagadoInteres + cu.MontoPagadoMora) ?? 0m);
                 
                 decimal restante = totalConInteres - totalAbonado;
-                if (restante > 0)
+                if (restante > 0.05m)
                 {
                     balance += restante;
                 }
@@ -105,11 +132,19 @@ namespace PrestaFlow.API.Features.Clientes
 
             // Calcular estado financiero general
             string status = "Sin Crédito";
-            if (c.Prestamos.Any(p => p.Status == "Mora"))
+            if (c.Prestamos.Count == 0)
+            {
+                status = "Sin Crédito";
+            }
+            else if (c.Prestamos.Any(p => p.Status == "Mora"))
             {
                 status = "En Mora";
             }
             else if (c.Prestamos.Any(p => p.Status == "Activo"))
+            {
+                status = "Al Día";
+            }
+            else if (c.Prestamos.All(p => p.Status == "Pagado"))
             {
                 status = "Al Día";
             }

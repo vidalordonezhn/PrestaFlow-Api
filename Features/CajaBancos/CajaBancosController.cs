@@ -106,5 +106,16 @@ namespace PrestaFlow.API.Features.CajaBancos
                 return BadRequest(new { mensaje = ex.Message });
             }
         }
+
+        /// <summary>
+        /// Genera el arqueo y cierre diario de caja y bancos.
+        /// </summary>
+        [HttpGet("arqueo-diario")]
+        [ProducesResponseType(typeof(ArqueoDiarioDto), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetArqueoDiario([FromQuery] DateTime? fecha)
+        {
+            var arqueo = await _cajaBancosService.GetArqueoDiarioAsync(fecha);
+            return Ok(arqueo);
+        }
     }
 }
