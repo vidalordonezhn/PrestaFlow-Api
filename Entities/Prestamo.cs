@@ -65,5 +65,8 @@ namespace PrestaFlow.API.Entities
 
         // Relación: Un préstamo tiene su cronograma de cuotas
         public virtual ICollection<Cuota> Cuotas { get; set; } = new List<Cuota>();
+
+        // Relación: Un préstamo puede tener garantías asociadas
+        public virtual ICollection<Garantia> Garantias { get; set; } = new List<Garantia>();
     }
 }

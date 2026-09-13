@@ -6,6 +6,7 @@ using PrestaFlow.API.Features.Prestamos;
 using PrestaFlow.API.Features.Pagos;
 using PrestaFlow.API.Features.Reportes;
 using PrestaFlow.API.Features.Usuarios;
+using PrestaFlow.API.Features.Garantias;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -29,6 +30,7 @@ builder.Services.AddScoped<PrestamosService>();
 builder.Services.AddScoped<PagosService>();
 builder.Services.AddScoped<ReportesService>();
 builder.Services.AddScoped<UsuariosService>();
+builder.Services.AddScoped<GarantiasService>();
 
 // ── Autenticación JWT ─────────────────────────────────────────────
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");

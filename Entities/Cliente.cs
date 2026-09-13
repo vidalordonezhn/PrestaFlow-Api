@@ -38,5 +38,8 @@ namespace PrestaFlow.API.Entities
 
         // Relación: Un cliente puede tener muchos préstamos
         public virtual ICollection<Prestamo> Prestamos { get; set; } = new List<Prestamo>();
+
+        // Relación: Un cliente puede tener varias garantías prendarias
+        public virtual ICollection<Garantia> Garantias { get; set; } = new List<Garantia>();
     }
 }

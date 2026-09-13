@@ -25,6 +25,7 @@ namespace PrestaFlow.API.Data
         public DbSet<CuentaFinanciera> CuentasFinancieras => Set<CuentaFinanciera>();
         public DbSet<TransaccionFinanciera> TransaccionesFinancieras => Set<TransaccionFinanciera>();
         public DbSet<Cuota> Cuotas => Set<Cuota>();
+        public DbSet<Garantia> Garantias => Set<Garantia>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -38,6 +39,7 @@ namespace PrestaFlow.API.Data
             modelBuilder.Entity<CuentaFinanciera>().ToTable("cuentas_financieras");
             modelBuilder.Entity<TransaccionFinanciera>().ToTable("transacciones_financieras");
             modelBuilder.Entity<Cuota>().ToTable("cuotas");
+            modelBuilder.Entity<Garantia>().ToTable("garantias");
 
             // Configurar relación 1-a-M (Un Cliente -> Muchos Préstamos)
             modelBuilder.Entity<Prestamo>()
@@ -66,6 +68,21 @@ namespace PrestaFlow.API.Data
                 .WithMany(p => p.Cuotas)
                 .HasForeignKey(c => c.PrestamoId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            // Configurar relación 1-a-M (Un Cliente -> Muchas Garantías)
+            modelBuilder.Entity<Garantia>()
+                .HasOne(g => g.Cliente)
+                .WithMany(c => c.Garantias)
+                .HasForeignKey(g => g.ClienteId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Configurar relación 1-a-M (Un Préstamo -> Muchas Garantías opcionales)
+            modelBuilder.Entity<Garantia>()
+                .HasOne(g => g.Prestamo)
+                .WithMany(p => p.Garantias)
+                .HasForeignKey(g => g.PrestamoId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.SetNull);
         }
 
         // Auditoría automática por interceptor en SaveChangesAsync
